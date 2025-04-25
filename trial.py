@@ -19,7 +19,6 @@ def draw_sidebar(frame, known_ids, treasure_id):
     sidebar = np.zeros((h, panel_w, 3), dtype=np.uint8)
     cv2.putText(sidebar, "Objects:", (10,30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200,200,200), 2)
-    # sort: treasure first, then others
     order = []
     if treasure_id in known_ids:
         order.append(treasure_id)
@@ -30,32 +29,31 @@ def draw_sidebar(frame, known_ids, treasure_id):
         cv2.putText(sidebar, f"ID {oid}", (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         y +=  30
-    # append sidebar to the right of the frame
     return np.hstack([frame, sidebar])
 
 def main():
     # ——— Config ———
-    DIST_THRESHOLD = 50    # in pixels
+    DIST_THRESHOLD = 50  # in pixels
     CAMERA_INDEX = 0
-    DETECT_EVERY = 3     # run detection every N frames
-    RESIZE_DIM   = 320   # detector input size
-    # -------------- 
+    DETECT_EVERY = 1
+    RESIZE_DIM   = 640
+    # --------------
 
-    detector = YOLO('yolov8n.pt')
+    detector = YOLO('yolo11n.pt')  # or 'yolov8n.pt'
     tracker  = DeepSort(max_age=30, n_init=3)
+    cap = cv2.VideoCapture(CAMERA_INDEX)
 
-    cap = cv2.VideoCapture(0)
-    
     print("📷  cap.isOpened():", cap.isOpened())
     if not cap.isOpened():
-        print("❌ Cannot open camera"); 
-        
+        print("❌ Cannot open camera")
+        return
 
     treasure_id = None
-    hunter_id   = None
+    treasure_centroid = None
+    hunter_id = None
     known_obj_ids = set()
     state = "WAIT_OBJECT"
-    prev_time     = datetime.datetime.now()
+    prev_time = datetime.datetime.now()
     frame_idx = 0
     print("🔍 Waiting for non-person object to pick treasure...")
 
@@ -82,6 +80,7 @@ def main():
         else:
             tracks = tracker.update_tracks([], frame=frame)
         frame_idx += 1
+
         # build current lists
         curr_objs = [t for t in tracks if t.is_confirmed() and t.det_class != 0]
         curr_persons = [t for t in tracks if t.is_confirmed() and t.det_class == 0]
@@ -90,47 +89,56 @@ def main():
         for t in curr_objs:
             known_obj_ids.add(t.track_id)
 
-        # 3) State logic & keypress
+        # ——— Key Input ———
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):       # quit on 'q'
+        if key == ord('q'):
             print("🛑 Quitting.")
             break
         elif key == ord('r'):
             if curr_objs:
-                treasure_id = random.choice([t.track_id for t in curr_objs])
+                treasure_track = random.choice(curr_objs)
+                treasure_id = treasure_track.track_id
+                box_t = treasure_track.to_ltrb()
+                treasure_centroid = centroid(box_t)
                 state = "HUNTING" if hunter_id else "WAIT_HUNTER"
-                print(f"🔄 Reselected treasure → ID {treasure_id}")
-        elif key == 27:  # ESC
+                print(f"🔄 Reselected treasure → ID {treasure_id} at {treasure_centroid}")
+        elif key == 27:
             break
 
-        # auto‐pick treasure if not set and objects exist
+        # ——— Initial Treasure & Hunter Assignment ———
         if treasure_id is None and curr_objs:
-            treasure_id = random.choice([t.track_id for t in curr_objs])
+            treasure_track = random.choice(curr_objs)
+            treasure_id = treasure_track.track_id
+            box_t = treasure_track.to_ltrb()
+            treasure_centroid = centroid(box_t)
             state = "WAIT_HUNTER"
-            print(f"🎯 Auto-picked treasure → ID {treasure_id}")
+            print(f"🎯 Auto-picked treasure → ID {treasure_id} at {treasure_centroid}")
 
-        # assign hunter if not set
         if hunter_id is None and curr_persons:
             hunter_id = curr_persons[0].track_id
             print(f"🏃 Hunter acquired → ID {hunter_id}")
-            if treasure_id: state = "HUNTING"
+            if treasure_id:
+                state = "HUNTING"
 
-        # if both set, compute distance
-        dist = None
-        if state == "HUNTING":
-            box_t = next((t.to_ltrb() for t in tracks if t.track_id==treasure_id and t.is_confirmed()), None)
-            box_h = next((t.to_ltrb() for t in tracks if t.track_id==hunter_id   and t.is_confirmed()), None)
-            if box_t is not None and box_h is not None:
-                c_t, c_h = centroid(box_t), centroid(box_h)
+        # ——— Distance Calculation ———
+        dist = 0
+        if state == "HUNTING" and treasure_centroid is not None:
+            box_h = next((t.to_ltrb() for t in tracks if t.track_id==hunter_id and t.is_confirmed()), None)
+            if box_h is not None:
+                # I want hunter's centroid to be the below the center of the box
+                # so that it is more accurate to the real distance
+                box_h = (box_h[0], box_h[1] + box_h[3] / 2, box_h[2], box_h[3])
+                c_h = centroid(box_h)
+                c_t = treasure_centroid
                 dist = euclidean(c_t, c_h)
                 if dist < DIST_THRESHOLD:
                     print("🏆 Treasure Found!")
                     state = "FOUND"
 
-        # 4) Visualization
+        # ——— Visualization ———
         for t in tracks:
             if not t.is_confirmed(): continue
-            x1,y1,x2,y2 = map(int, t.to_ltrb())
+            x1, y1, x2, y2 = map(int, t.to_ltrb())
             tid = t.track_id
             if tid == treasure_id:
                 col, lbl = (0,255,0), f"T:{tid}"
@@ -141,6 +149,11 @@ def main():
             cv2.rectangle(frame, (x1,y1), (x2,y2), col, 2)
             cv2.putText(frame, lbl, (x1,y1-5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 2)
+
+        # Draw fixed treasure centroid
+        if treasure_centroid:
+            cx, cy = map(int, treasure_centroid)
+            cv2.circle(frame, (cx, cy), 6, (0, 255, 0), -1)
 
         # overlay info
         cv2.putText(frame, f"State: {state}", (10,30),
@@ -157,11 +170,9 @@ def main():
         cv2.putText(out, f"FPS: {fps:.1f}", (20,50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,255,255), 2)
         cv2.imshow("Treasure Hunt", out)
+
         if state == "FOUND":
             cv2.waitKey(0)
-            break
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()

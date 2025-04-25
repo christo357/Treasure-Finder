@@ -36,7 +36,7 @@ def draw_box(frame, box, label, color):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
 def main():
-    detector = YOLO("yolov8n.pt")
+    detector = YOLO("yolo11n.pt")
     cap = cv2.VideoCapture(0)
 
     print("🎮 Press 'c' to capture, 'v' to validate, 'q' to quit")
