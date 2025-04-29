@@ -6,6 +6,8 @@ import numpy as np
 import datetime
 from ultralytics import YOLO
 from deep_sort_realtime.deepsort_tracker import DeepSort
+import time
+# os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
 
 RESIZE_DIM = 320
 
@@ -49,6 +51,7 @@ def main():
     info_container = col2.empty()
     timer_container = col2.empty()
     score_container = col3.empty()
+    thumbnail_container = col3.empty()
 
     # Initialize or retrieve session states
     if 'detector' not in st.session_state:
@@ -68,6 +71,7 @@ def main():
         st.session_state.end_time       = None
         st.session_state.timer_running  = False
         st.session_state.score          = 0
+        st.session_state.thumbnails = [] 
 
     detector = st.session_state.detector
     tracker = st.session_state.tracker
@@ -84,13 +88,96 @@ def main():
     #     st.session_state.reselect = True
 
     
-   # button to reset (re-select) the hunter
+    # button to reset (re-select) the hunter
     if col3.button("Reset Hunter"):
         st.session_state.reset_hunter = True
         # reset timer
         # st.session_state.start_time    = datetime.datetime.now()
         # st.session_state.timer_running = True
+    
 
+    if col3.button("Restart Game"):
+        # Only save a thumbnail if a treasure was found in this round
+        if st.session_state.state == "FOUND" and hasattr(st.session_state, 'last_frame'):
+            # Create a thumbnail with the image and elapsed time
+            thumbnail = {
+                "image": st.session_state.last_frame,
+                "elapsed": st.session_state.last_elapsed
+            }
+            st.session_state.thumbnails.append(thumbnail)
+            st.toast(f"💾 Hunt saved! Completed in {st.session_state.last_elapsed:.2f} seconds")
+            
+        # Show a placeholder to clear the current video frame
+        video_container.empty()
+        info_container.empty()
+        timer_container.empty()
+        
+        # Reset video capture if needed
+        if hasattr(st.session_state, 'cap') :
+            st.session_state.cap.release()
+            del st.session_state.cap
+        # st.session_state.cap = cv2.VideoCapture(0)
+        
+        time.sleep(0.5)
+        
+        # Create fresh VideoCapture instance
+        st.session_state.cap = cv2.VideoCapture(0)
+        
+        for _ in range(5):
+            if st.session_state.cap.isOpened():
+                st.session_state.cap.read()
+        
+        
+        # Reset game state but preserve thumbnails and score
+        st.session_state.treasure_id = None
+        st.session_state.treasure_centroid = None
+        st.session_state.hunter_id = None
+        st.session_state.state = "WAIT_OBJECT"
+        st.session_state.start_time = None
+        st.session_state.end_time = None
+        st.session_state.timer_running = False
+        st.session_state.frame_idx = 0
+        st.session_state.known_obj_ids = set()
+        
+        # Clear the flag for next run
+        st.session_state.reselect = False
+        st.session_state.reset_hunter = False
+        if hasattr(st.session_state, 'last_frame'):
+            del st.session_state.last_frame
+        if hasattr(st.session_state, 'last_elapsed'):
+            del st.session_state.last_elapsed
+        st.rerun()  # Force streamlit to rerun to update the UI
+    
+        
+
+    # Reset Button
+    if col3.button("Reset"):
+        
+        st.session_state.clear()
+        st.rerun()
+        # st.session_state.thumbnails = []  # Clear all thumbnails
+        # st.session_state.score = 0  # Reset score
+    
+    # Display thumbnails
+    if st.session_state.thumbnails:
+        thumbnail_container.markdown("### 🏆 Hunt History")
+        
+        # Create a scrollable area for thumbnails if there are many
+        with thumbnail_container.container():
+            for idx, thumbnail in enumerate(st.session_state.thumbnails):
+                # Create a card-like display for each thumbnail
+                st.markdown(f"**Hunt #{idx+1}**")
+                
+                # Display a small version of the image
+                st.image(
+                    thumbnail["image"], 
+                    caption=f"Time: {thumbnail['elapsed']:.2f}s", 
+                    width=150
+                )
+                
+                # Add a separator between thumbnails
+                if idx < len(st.session_state.thumbnails) - 1:
+                    st.markdown("---")
     
     while cap.isOpened():
         # if col3.button("Reset Hunter"):
@@ -103,6 +190,10 @@ def main():
             info_container.warning("Cannot read from camera")
             break
         h0, w0 = frame.shape[:2]
+        
+        # Ensure the video feed restarts properly
+        if st.session_state.state == "WAIT_OBJECT":
+            info_container.info("Waiting for treasure selection...")
 
         # Detection / Tracking
         if st.session_state.frame_idx < 5 or st.session_state.frame_idx % 1 == 0:
@@ -183,6 +274,10 @@ def main():
             # turn time into points
             round_pts = compute_round_score(elapsed)
             st.session_state.score += round_pts
+            
+            # Save the last frame in session state
+            st.session_state.last_frame = frame.copy()  # Store the frame
+            st.session_state.last_elapsed = elapsed  # Store the elapsed time
 
             # optionally show last-round points
             st.toast(f"🏅 You earned {round_pts} points!")
@@ -240,7 +335,9 @@ def main():
 
         if st.session_state.state == "FOUND":
             info_container.success("Treasure Found!")
-            break
+            if not st.session_state.end_time:  # Only set end time once
+                st.session_state.end_time = datetime.datetime.now()
+            # break
 
     cap.release()
 
