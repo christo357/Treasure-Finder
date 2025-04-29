@@ -19,8 +19,6 @@ def centroid(box):
 def euclidean(a, b):
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
-import math
-
 def compute_round_score(elapsed_secs: float) -> int:
     """
     Example scoring functions — pick one that fits you:
@@ -63,6 +61,7 @@ def main():
         st.session_state.hunter_id = None
         st.session_state.known_obj_ids = set()
         st.session_state.state = "WAIT_OBJECT"
+        st.session_state.prev_state = "WAIT_OBJECT"  # Add this to track state changes
         st.session_state.prev_time = datetime.datetime.now()
         st.session_state.frame_idx = 0
         
@@ -94,8 +93,8 @@ def main():
         # reset timer
         # st.session_state.start_time    = datetime.datetime.now()
         # st.session_state.timer_running = True
+        
     
-
     if col3.button("Restart Game"):
         # Only save a thumbnail if a treasure was found in this round
         if st.session_state.state == "FOUND" and hasattr(st.session_state, 'last_frame'):
@@ -157,6 +156,12 @@ def main():
         st.rerun()
         # st.session_state.thumbnails = []  # Clear all thumbnails
         # st.session_state.score = 0  # Reset score
+        
+    if col3.button("❌ Exit Game", key="exit_game_btn"):
+        st.session_state.cap.release()
+        st.stop()  # Gracefully stops the app
+    
+
     
     # Display thumbnails
     if st.session_state.thumbnails:
@@ -253,6 +258,17 @@ def main():
             if st.session_state.treasure_id:
                 st.session_state.state = "HUNTING"
 
+        # Check for state transition to HUNTING and start timer automatically
+        if st.session_state.state == "HUNTING" and st.session_state.prev_state != "HUNTING":
+            # Only start timer if it's not already running
+            if not st.session_state.timer_running:
+                st.session_state.start_time = datetime.datetime.now()
+                st.session_state.timer_running = True
+                st.toast("🕹️ Hunt begins!")
+
+        # Update previous state for next iteration
+        st.session_state.prev_state = st.session_state.state
+        
         # Distance
         dist = 0
         if st.session_state.state == "HUNTING" and st.session_state.treasure_centroid:
@@ -261,8 +277,10 @@ def main():
                 box_h = (box_h[0], box_h[1] + box_h[3]/2, box_h[2], box_h[3])
                 c_h = centroid(box_h)
                 c_t = st.session_state.treasure_centroid
+                chx, chy = map(int, c_h)
+                cv2.circle(frame, (chx, chy), 9, (255,0,0), -1)
                 dist = euclidean(c_t, c_h)
-                if dist < 200:
+                if dist < 50:
                     st.session_state.state = "FOUND"
                     
         if st.session_state.state == "FOUND" and st.session_state.timer_running:
@@ -294,11 +312,59 @@ def main():
                 col = (255,0,0); lbl = f"H:{tid}"
             else:
                 col = (200,200,200); lbl = f"{t.det_class}:{tid}"
-            cv2.rectangle(frame, (x1,y1), (x2,y2), col, 2)
-            cv2.putText(frame, lbl, (x1,y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 2)
+            # cv2.rectangle(frame, (x1,y1), (x2,y2), col, 2)
+            # cv2.putText(frame, lbl, (x1,y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 2)
         if st.session_state.treasure_centroid:
             cx, cy = map(int, st.session_state.treasure_centroid)
             cv2.circle(frame, (cx, cy), 6, (0,255,0), -1)
+
+        # Draw the moving hunter centroid
+        # if st.session_state.hunter_id is not None:
+        #     box_h = next((t.to_ltrb() for t in tracks if t.track_id == st.session_state.hunter_id and t.is_confirmed()), None)
+        #     # if box_h is not None:
+        #     #     # Calculate hunter center
+        #     #     box_h = (box_h[0], box_h[1], box_h[2], box_h[3])  # Adjusting box center like you do in distance
+        #     #     chx, chy = map(int, centroid(box_h))
+        #     #     cv2.circle(frame, (chx, chy), 6, (255,0,0), -1)
+        #     if c_h:
+        #         # Calculate hunter center
+        #         chx, chy = map(int, c_h)
+        #         cv2.circle(frame, (chx, chy), 6, (255,0,0), -1)
+            
+            
+        # Calculate max_dist dynamically based on treasure position
+        if st.session_state.treasure_centroid:
+            cx, cy = st.session_state.treasure_centroid
+            
+            # Calculate distances to each corner of the frame
+            # dist_to_top_left = math.sqrt(cx**2 + cy**2)
+            # dist_to_top_right = math.sqrt((w0 - cx)**2 + cy**2)
+            # dist_to_bottom_left = math.sqrt(cx**2 + (h0 - cy)**2)
+            # dist_to_bottom_right = math.sqrt((w0 - cx)**2 + (h0 - cy)**2)
+            dist_to_right = w0-cx
+            dist_to_left =  cx
+            
+            # Set max_dist to the maximum possible distance
+            # max_dist = max(dist_to_top_left, dist_to_top_right, dist_to_bottom_left, dist_to_bottom_right)
+            max_dist = max(dist_to_right, dist_to_left)
+        else:
+            # Fallback if treasure position not available
+            max_dist = math.sqrt(w0**2 + h0**2) 
+            
+        # max_dist = 400
+        frame_t = min(dist / max_dist, 1.0)
+
+        # Interpolate between green (close) and red (far)
+        r = int(255 * frame_t)
+        g = int(255 * (1 - frame_t))
+        b = 0
+
+        # Apply translucent overlay BEFORE displaying
+        overlay = np.full_like(frame, (b, g, r), dtype=np.uint8)
+        alpha = 0.3
+        frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)  # 🛠 assign to frame
+
+        # 🔵 Now show the updated tinted frame    
 
         video_container.image(frame, channels="BGR")
         info_container.write(f"Distance: {dist:.1f}px")
@@ -317,9 +383,9 @@ def main():
             
              # interpolate RGB
             MAX_TIME = 60.0
-            t     = min(secs / MAX_TIME, 1.0)
-            r     = int(255 * t)
-            g     = int(255 * (1 - t))
+            time_t     = min(secs / MAX_TIME, 1.0)
+            r     = int(255 * time_t)
+            g     = int(255 * (1 - time_t))
             color = f"#{r:02x}{g:02x}00"
 
             
