@@ -100,11 +100,13 @@ def main():
         if st.session_state.state == "FOUND" and hasattr(st.session_state, 'last_frame'):
             # Create a thumbnail with the image and elapsed time
             thumbnail = {
-                "image": st.session_state.last_frame,
+                "image": st.session_state.last_frame.copy(),
                 "elapsed": st.session_state.last_elapsed
             }
             st.session_state.thumbnails.append(thumbnail)
             st.toast(f"💾 Hunt saved! Completed in {st.session_state.last_elapsed:.2f} seconds")
+            
+            
             
         # Show a placeholder to clear the current video frame
         video_container.empty()
@@ -170,15 +172,21 @@ def main():
         # Create a scrollable area for thumbnails if there are many
         with thumbnail_container.container():
             for idx, thumbnail in enumerate(st.session_state.thumbnails):
-                # Create a card-like display for each thumbnail
-                st.markdown(f"**Hunt #{idx+1}**")
+                col1, col2 = st.columns([3, 1])
                 
-                # Display a small version of the image
-                st.image(
-                    thumbnail["image"], 
-                    caption=f"Time: {thumbnail['elapsed']:.2f}s", 
-                    width=150
-                )
+                # Create a card-like display for each thumbnail
+                with col1:
+                    st.markdown(f"**Hunt #{idx+1}**")
+                
+                # Use expandable image (no fixed width constraint)
+                with col1:
+                    # Remove width parameter to allow full expansion when clicked
+                    st.image(
+                        thumbnail["image"], 
+                        caption=f"Time: {thumbnail['elapsed']:.2f}s",
+                        use_container_width=True,  # This makes it fill the column and expand properly
+                        output_format="PNG"
+                    )
                 
                 # Add a separator between thumbnails
                 if idx < len(st.session_state.thumbnails) - 1:
@@ -274,13 +282,13 @@ def main():
         if st.session_state.state == "HUNTING" and st.session_state.treasure_centroid:
             box_h = next((t.to_ltrb() for t in tracks if t.track_id==st.session_state.hunter_id and t.is_confirmed()), None)
             if box_h is not None:
-                box_h = (box_h[0], box_h[1] + box_h[3]/2, box_h[2], box_h[3])
+                box_h = (box_h[0], box_h[1], box_h[2], box_h[3])
                 c_h = centroid(box_h)
                 c_t = st.session_state.treasure_centroid
                 chx, chy = map(int, c_h)
-                cv2.circle(frame, (chx, chy), 9, (255,0,0), -1)
+                cv2.circle(frame, (chx, chy), 20, (255,0,0), -1)
                 dist = euclidean(c_t, c_h)
-                if dist < 50:
+                if dist < 100:
                     st.session_state.state = "FOUND"
                     
         if st.session_state.state == "FOUND" and st.session_state.timer_running:
@@ -293,6 +301,7 @@ def main():
             round_pts = compute_round_score(elapsed)
             st.session_state.score += round_pts
             
+            last_frame = frame.copy()
             # Save the last frame in session state
             st.session_state.last_frame = frame.copy()  # Store the frame
             st.session_state.last_elapsed = elapsed  # Store the elapsed time
@@ -316,7 +325,7 @@ def main():
             # cv2.putText(frame, lbl, (x1,y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 2)
         if st.session_state.treasure_centroid:
             cx, cy = map(int, st.session_state.treasure_centroid)
-            cv2.circle(frame, (cx, cy), 6, (0,255,0), -1)
+            cv2.circle(frame, (cx, cy), 20, (0,255,0), -1)
 
         # Draw the moving hunter centroid
         # if st.session_state.hunter_id is not None:
@@ -341,12 +350,12 @@ def main():
             # dist_to_top_right = math.sqrt((w0 - cx)**2 + cy**2)
             # dist_to_bottom_left = math.sqrt(cx**2 + (h0 - cy)**2)
             # dist_to_bottom_right = math.sqrt((w0 - cx)**2 + (h0 - cy)**2)
-            dist_to_right = w0-cx
-            dist_to_left =  cx
+            dist_to_right = (w0-cx)*.75
+            dist_to_left =  cx*.75
             
             # Set max_dist to the maximum possible distance
             # max_dist = max(dist_to_top_left, dist_to_top_right, dist_to_bottom_left, dist_to_bottom_right)
-            max_dist = max(dist_to_right, dist_to_left)
+            max_dist = max(dist_to_right, dist_to_left, 500)
         else:
             # Fallback if treasure position not available
             max_dist = math.sqrt(w0**2 + h0**2) 
