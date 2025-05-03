@@ -10,6 +10,7 @@ import time
 # os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
 
 RESIZE_DIM = 320
+CAMERA_INDEX = 0
 
 # Helper functions
 def centroid(box):
@@ -36,7 +37,7 @@ def compute_round_score(elapsed_secs: float) -> int:
     You can tweak the constants (100, 1000, base, decay) to taste.
     """
     # here’s the inverse version by default:
-    base, decay = 500, 0.1
+    base, decay = 1000, 0.01
     score = int(base * math.exp(-decay * elapsed_secs))
 
     return score
@@ -55,7 +56,7 @@ def main():
     if 'detector' not in st.session_state:
         st.session_state.detector = YOLO('yolo11n.pt')
         st.session_state.tracker = DeepSort(max_age=30, n_init=3)
-        st.session_state.cap = cv2.VideoCapture(0)
+        st.session_state.cap = cv2.VideoCapture(CAMERA_INDEX)
         st.session_state.treasure_id = None
         st.session_state.treasure_centroid = None
         st.session_state.hunter_id = None
@@ -117,12 +118,12 @@ def main():
         if hasattr(st.session_state, 'cap') :
             st.session_state.cap.release()
             del st.session_state.cap
-        # st.session_state.cap = cv2.VideoCapture(0)
+        # st.session_state.cap = cv2.VideoCapture(CAMERA_INDEX)
         
         time.sleep(0.5)
         
         # Create fresh VideoCapture instance
-        st.session_state.cap = cv2.VideoCapture(0)
+        st.session_state.cap = cv2.VideoCapture(CAMERA_INDEX)
         
         for _ in range(5):
             if st.session_state.cap.isOpened():
