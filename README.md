@@ -14,6 +14,13 @@ Treasure Finder is an interactive game that randomly selects an object from your
 - **Scoring System**: Time-based scoring that rewards quick discoveries
 - **Webcam Integration**: Works with any standard webcam
 
+## Demo
+
+https://github.com/user-attachments/assets/385158c8-9142-46cc-95f3-3f972f39fb8f
+
+
+
+
 ## Installation
 
 1. Clone the repository:
