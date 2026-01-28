@@ -22,7 +22,7 @@ def euclidean(a, b):
 
 def compute_round_score(elapsed_secs: float) -> int:
     """
-    Example scoring functions — pick one that fits you:
+    Example scoring functions — pick one that fits:
 
     1) **Linear decay** (max 100 points, lose 1 point per second):
        score = max(0, 100 - elapsed_secs)
@@ -34,7 +34,7 @@ def compute_round_score(elapsed_secs: float) -> int:
        base, decay = 500, 0.1
        score = int(base * math.exp(-decay * elapsed_secs))
 
-    You can tweak the constants (100, 1000, base, decay) to taste.
+    Tweak the constants (100, 1000, base, decay) .
     """
     # here’s the inverse version by default:
     base, decay = 1000, 0.01
